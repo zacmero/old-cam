@@ -220,9 +220,22 @@ ffmpeg -y \
   webcam_with_audio.mp4
 ```
 
+### D. Record to File AND Preview Live on Screen
+
+To see a real-time preview window on your screen while simultaneously recording video and audio to an MP4 file, pipe the video stream into `mpv`:
+
+```bash
+ffmpeg -y \
+  -thread_queue_size 1024 -f v4l2 -input_format yuyv422 -video_size 636x476 -i /dev/video0 \
+  -thread_queue_size 1024 -f alsa -i hw:0,0 \
+  -c:v libx264 -pix_fmt yuv420p -c:a aac -b:a 192k "$HOME/webcam_recording.mp4" \
+  -f matroska -c:v copy -an - | mpv --title="Webcam Recording Preview" -
+```
+*(Closing the preview window with `q` stops recording and cleanly finalizes the MP4 file).*
+
 Play back through your default output (Steinberg UR44):
 ```bash
-mpv webcam_with_audio.mp4
+mpv "$HOME/webcam_recording.mp4"
 ```
 
 ---
