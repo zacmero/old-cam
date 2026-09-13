@@ -38,6 +38,7 @@ struct sd {
 	u8 bridge;
 	u8 sensor;
 	u8 flags;
+	u8 sensor_ready;
 #define FL_SAMSUNG 0x01		/* SamsungQ1 (2 sensors) */
 #define FL_HFLIP 0x02		/* mirrored by default */
 #define FL_VFLIP 0x04		/* vertical flipped by default */
@@ -1706,9 +1707,11 @@ static const u8 ov7660_initVGA_data[][4] = {
 	{0x00, 0x8b, 0xcc, 0xaa},	{0x00, 0x8c, 0xcc, 0xaa},
 	{0x00, 0x0f, 0x62, 0xaa},
 	{0x00, 0x35, 0x84, 0xaa},
-	{0x00, 0x3b, 0x08, 0xaa}, /* 0 * Nightframe 1/4 + 50Hz -> 0xC8 */
+	{0x00, 0x3b, 0xc8, 0xaa}, /* Nightframe 1/4 + 50Hz -> 0xC8 */
 	{0x00, 0x3a, 0x00, 0xaa}, /* mx change yuyv format 00, 04, 01; 08, 0c*/
-	{0x00, 0x14, 0x2a, 0xaa}, /* agc ampli */
+	{0x00, 0x14, 0x6a, 0xaa}, /* agc ampli 128x */
+	{0x00, 0x24, 0x80, 0xaa}, /* AEW upper luminance limit */
+	{0x00, 0x25, 0x70, 0xaa}, /* AEB lower luminance limit */
 	{0x00, 0x9e, 0x40, 0xaa},	{0xb8, 0x8f, 0x50, 0xcc},
 	{0x00, 0x01, 0x80, 0xaa},
 	{0x00, 0x02, 0x80, 0xaa},
@@ -1759,9 +1762,11 @@ static const u8 ov7660_initQVGA_data[][4] = {
 	{0x00, 0x39, 0x43, 0xaa},	{0x00, 0x8d, 0xcf, 0xaa},
 	{0x00, 0x8b, 0xcc, 0xaa},	{0x00, 0x8c, 0xcc, 0xaa},
 	{0x00, 0x0f, 0x62, 0xaa},	{0x00, 0x35, 0x84, 0xaa},
-	{0x00, 0x3b, 0x08, 0xaa}, /* 0  * Nightframe 1/4 + 50Hz -> 0xC8 */
+	{0x00, 0x3b, 0xc8, 0xaa}, /* Nightframe 1/4 + 50Hz -> 0xC8 */
 	{0x00, 0x3a, 0x00, 0xaa}, /* mx change yuyv format 00, 04, 01; 08, 0c*/
-	{0x00, 0x14, 0x2a, 0xaa}, /* agc ampli */
+	{0x00, 0x14, 0x6a, 0xaa}, /* agc ampli 128x */
+	{0x00, 0x24, 0x80, 0xaa}, /* AEW upper luminance limit */
+	{0x00, 0x25, 0x70, 0xaa}, /* AEB lower luminance limit */
 	{0x00, 0x9e, 0x40, 0xaa},	{0xb8, 0x8f, 0x50, 0xcc},
 	{0x00, 0x01, 0x80, 0xaa},
 	{0x00, 0x02, 0x80, 0xaa},
@@ -3289,7 +3294,17 @@ static int sd_init(struct gspca_dev *gspca_dev)
 
 static void setbrightness(struct gspca_dev *gspca_dev, s32 val)
 {
+	struct sd *sd = (struct sd *) gspca_dev;
 	u8 data;
+
+	if (sd->sensor == SENSOR_OV7660 || sd->sensor == SENSOR_OV7670) {
+		if (val >= 128)
+			data = (val - 128) & 0x7f;
+		else
+			data = (128 - val) | 0x80;
+		i2c_write(gspca_dev, 0x55, &data, 1);
+		return;
+	}
 
 	data = val;
 	if (data >= 0x80)
@@ -3301,6 +3316,12 @@ static void setbrightness(struct gspca_dev *gspca_dev, s32 val)
 
 static void setcontrast(struct gspca_dev *gspca_dev, u8 val)
 {
+	struct sd *sd = (struct sd *) gspca_dev;
+
+	if (sd->sensor == SENSOR_OV7660 || sd->sensor == SENSOR_OV7670) {
+		i2c_write(gspca_dev, 0x56, &val, 1);
+		return;
+	}
 	i2c_write(gspca_dev, 0x99, &val, 1);
 }
 
@@ -3611,6 +3632,7 @@ static int sd_start(struct gspca_dev *gspca_dev)
 		reg_w(gspca_dev, 0x89, 0xffff, 0xfdff);
 		break;
 	}
+	sd->sensor_ready = 1;
 	return gspca_dev->usb_err;
 }
 
@@ -3618,6 +3640,7 @@ static void sd_stopN(struct gspca_dev *gspca_dev)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 
+	sd->sensor_ready = 0;
 	switch (sd->sensor) {
 	case SENSOR_MI1310_SOC:
 		reg_w(gspca_dev, 0x89, 0x058c, 0x00ff);
@@ -3638,6 +3661,7 @@ static void sd_stop0(struct gspca_dev *gspca_dev)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 
+	sd->sensor_ready = 0;
 	if (!gspca_dev->present)
 		return;
 /*fixme: is this useful?*/
@@ -3691,7 +3715,7 @@ static int sd_s_ctrl(struct v4l2_ctrl *ctrl)
 
 	gspca_dev->usb_err = 0;
 
-	if (!gspca_dev->streaming && ctrl->id != V4L2_CID_POWER_LINE_FREQUENCY)
+	if (!sd->sensor_ready && ctrl->id != V4L2_CID_POWER_LINE_FREQUENCY)
 		return 0;
 
 	switch (ctrl->id) {
@@ -3758,6 +3782,8 @@ static int sd_init_controls(struct gspca_dev *gspca_dev)
 	case SENSOR_MI1320_SOC:
 	case SENSOR_OV7660:
 		has_hvflip = true;
+		has_brightness = true;
+		has_contrast = true;
 		break;
 	case SENSOR_OV7670:
 		has_hvflip = has_freq = true;
@@ -3776,7 +3802,8 @@ static int sd_init_controls(struct gspca_dev *gspca_dev)
 	v4l2_ctrl_handler_init(hdl, 8);
 	if (has_brightness)
 		v4l2_ctrl_new_std(hdl, &sd_ctrl_ops,
-			V4L2_CID_BRIGHTNESS, 0, 255, 1, 128);
+			V4L2_CID_BRIGHTNESS, 0, 255, 1,
+			sd->sensor == SENSOR_OV7660 ? 160 : 128);
 	if (has_contrast)
 		v4l2_ctrl_new_std(hdl, &sd_ctrl_ops,
 			V4L2_CID_CONTRAST, 0, 255, 1, 127);
