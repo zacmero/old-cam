@@ -151,67 +151,98 @@ Stream 30 frames with zero frame drops:
 v4l2-ctl --device=/dev/video0 --stream-mmap --stream-count=30
 ```
 
-### 4. Record Video with FFmpeg
+### 4. Live Preview
+View the live camera feed in real time:
 ```bash
-ffmpeg -f v4l2 -input_format yuyv422 -video_size 640x480 -i /dev/video0 -t 5 -c:v libx264 test.mp4
-```
+# mpv
+mpv --demuxer-lavf-format=video4linux2 --demuxer-lavf-o-set=input_format=yuyv422,video_size=636x476 av://v4l2:/dev/video0
 
-### 5. Live Preview
-View the live camera stream with `mpv`:
-```bash
-mpv --demuxer-lavf-format=video4linux2 --demuxer-lavf-o-set=input_format=yuyv422,video_size=640x480 av://v4l2:/dev/video0
-```
-Or with `ffplay`:
-```bash
-ffplay -f v4l2 -input_format yuyv422 -video_size 640x480 /dev/video0
+# ffplay
+ffplay -f v4l2 -input_format yuyv422 -video_size 636x476 /dev/video0
 ```
 
 ---
 
-## 7. Camera Controls & Tuning
+## 7. Recording Commands Quick-Reference
+
+### A. Video-Only Recording
+
+```bash
+# 1. Record a fixed duration (e.g., 10 seconds)
+ffmpeg -y -f v4l2 -input_format yuyv422 -video_size 636x476 -i /dev/video0 \
+       -t 10 -c:v libx264 -pix_fmt yuv420p video_only.mp4
+
+# 2. Continuous recording (press 'q' or Ctrl+C to stop)
+ffmpeg -y -f v4l2 -input_format yuyv422 -video_size 636x476 -i /dev/video0 \
+       -c:v libx264 -pix_fmt yuv420p video_capture.mp4
+
+# 3. Capture a single JPEG snapshot
+ffmpeg -y -f v4l2 -input_format yuyv422 -video_size 636x476 -i /dev/video0 \
+       -vframes 1 snapshot.jpg
+```
+
+### B. Audio Setup (Rear Analog Mic Jack)
+
+The webcam microphone terminates in a 3.5mm (P2) analog plug. For minimum noise, connect it to the **motherboard rear microphone jack** (pink port) and configure ALSA:
+
+```bash
+# Route capture input to the rear microphone
+amixer -c 0 sset 'Input Source',0 'Rear Mic'
+
+# Set pre-amp boost (+10dB recommended)
+amixer -c 0 sset 'Rear Mic Boost' 1
+
+# Set capture volume to 74% (+18dB)
+amixer -c 0 sset 'Capture' 74%
+
+# Test audio capture alone (5 seconds)
+arecord -D hw:0,0 -f S16_LE -r 48000 -c 2 -d 5 test_mic.wav
+mpv test_mic.wav
+```
+
+### C. Combined Video + Audio Recording
+
+Use `-thread_queue_size 1024` on both inputs to prevent buffer overruns during interleaved encoding:
+
+```bash
+# 1. Record fixed duration (e.g., 10 seconds)
+ffmpeg -y \
+  -thread_queue_size 1024 -f v4l2 -input_format yuyv422 -video_size 636x476 -i /dev/video0 \
+  -thread_queue_size 1024 -f alsa -i hw:0,0 \
+  -t 10 -c:v libx264 -pix_fmt yuv420p -c:a aac -b:a 192k \
+  webcam_with_audio.mp4
+
+# 2. Continuous recording (press 'q' or Ctrl+C to stop)
+ffmpeg -y \
+  -thread_queue_size 1024 -f v4l2 -input_format yuyv422 -video_size 636x476 -i /dev/video0 \
+  -thread_queue_size 1024 -f alsa -i hw:0,0 \
+  -c:v libx264 -pix_fmt yuv420p -c:a aac -b:a 192k \
+  webcam_with_audio.mp4
+```
+
+Play back through your default output (Steinberg UR44):
+```bash
+mpv webcam_with_audio.mp4
+```
+
+---
+
+## 8. Camera Controls & Tuning
 
 The OmniVision OV7660 incorporates built-in Automatic Gain Control (AGC) and Automatic Exposure Control (AEC).
-When the camera is first opened or exposed to low light, it takes several frames for the exposure loop to stabilize.
+When the camera is first opened, allow 1–2 seconds for the auto-exposure loop to stabilize.
 
-You can inspect and adjust hardware controls via `v4l2-ctl`:
+Inspect and adjust hardware controls via `v4l2-ctl`:
 ```bash
 # List all adjustable controls
 v4l2-ctl -d /dev/video0 -l
 
-# Adjust brightness (range 0 to 255)
+# Adjust brightness (range 0 to 255, default 160)
 v4l2-ctl -d /dev/video0 --set-ctrl=brightness=160
 
-# Adjust contrast (range 0 to 255)
-v4l2-ctl -d /dev/video0 --set-ctrl=contrast=60
+# Adjust contrast (range 0 to 255, default 127)
+v4l2-ctl -d /dev/video0 --set-ctrl=contrast=127
 ```
-
----
-
-## 8. Integrated Microphone (3.5mm P2 Audio Jack)
-
-The webcam features an integrated analog electret microphone exposed via a separate 3.5mm (P2) audio jack rather than USB audio.
-
-### Audio Configuration (ALSA)
-When connected to the front panel audio jack of the motherboard (Intel PCH / ALC887):
-1. **Input Selection:** Route the input to the front microphone:
-   ```bash
-   amixer -c 0 sset 'Input Source',0 'Front Mic'
-   ```
-2. **Microphone Boost & Gain:**
-   Electret capsules output low-voltage analog signals. Enable pre-amp boost (+20dB) and set capture volume:
-   ```bash
-   amixer -c 0 sset 'Front Mic Boost' 2
-   amixer -c 0 sset 'Capture' 100%
-   ```
-3. **Audio-Only Recording Test:**
-   ```bash
-   arecord -D hw:0,0 -f S16_LE -r 44100 -c 2 -d 5 test_mic.wav
-   ```
-4. **Simultaneous Video + Audio Capture (FFmpeg):**
-   ```bash
-   ffmpeg -f v4l2 -input_format yuyv422 -video_size 640x480 -i /dev/video0 \
-          -f alsa -i hw:0,0 -t 10 -c:v libx264 -c:a aac output.mp4
-   ```
 
 ---
 
