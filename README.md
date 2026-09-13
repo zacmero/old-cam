@@ -202,20 +202,23 @@ mpv test_mic.wav
 
 ### C. Combined Video + Audio Recording
 
-Use `-thread_queue_size 1024` on both inputs to prevent buffer overruns during interleaved encoding:
+Capture via PipeWire (`-f pulse`) to prevent ALSA hardware buffer xruns and clock desync:
 
 ```bash
+# Ensure motherboard analog input profile is active in PipeWire
+pactl set-card-profile alsa_card.pci-0000_00_1b.0 input:analog-stereo
+
 # 1. Record fixed duration (e.g., 10 seconds)
 ffmpeg -y \
   -thread_queue_size 1024 -f v4l2 -input_format yuyv422 -video_size 636x476 -i /dev/video0 \
-  -thread_queue_size 1024 -f alsa -i hw:0,0 \
+  -thread_queue_size 1024 -f pulse -i alsa_input.pci-0000_00_1b.0.analog-stereo \
   -t 10 -c:v libx264 -pix_fmt yuv420p -c:a aac -b:a 192k \
   webcam_with_audio.mp4
 
 # 2. Continuous recording (press 'q' or Ctrl+C to stop)
 ffmpeg -y \
   -thread_queue_size 1024 -f v4l2 -input_format yuyv422 -video_size 636x476 -i /dev/video0 \
-  -thread_queue_size 1024 -f alsa -i hw:0,0 \
+  -thread_queue_size 1024 -f pulse -i alsa_input.pci-0000_00_1b.0.analog-stereo \
   -c:v libx264 -pix_fmt yuv420p -c:a aac -b:a 192k \
   webcam_with_audio.mp4
 ```
@@ -227,7 +230,7 @@ To see a real-time preview window on your screen while simultaneously recording 
 ```bash
 ffmpeg -y \
   -thread_queue_size 1024 -f v4l2 -input_format yuyv422 -video_size 636x476 -i /dev/video0 \
-  -thread_queue_size 1024 -f alsa -i hw:0,0 \
+  -thread_queue_size 1024 -f pulse -i alsa_input.pci-0000_00_1b.0.analog-stereo \
   -c:v libx264 -pix_fmt yuv420p -c:a aac -b:a 192k "$HOME/webcam_recording.mp4" \
   -f matroska -c:v copy -an - | mpv --title="Webcam Recording Preview" -
 ```
