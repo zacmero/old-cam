@@ -163,16 +163,85 @@ ffplay -f v4l2 -input_format yuyv422 -video_size 636x476 /dev/video0
 
 ---
 
-## 7. Recording Commands Quick-Reference
+## 7. Recording Commands & Pipeline
 
-### A. Video-Only Recording
+### A. All-in-One Recording Script (`record.sh`)
+
+A turnkey bash script [`record.sh`](record.sh) handles driver verification, PipeWire audio routing, 8 kHz hardware whine filtering, and optional live preview:
 
 ```bash
-# 1. Record a fixed duration (e.g., 10 seconds)
+# 1. Record directly with real-time whine filter (saves to ~/webcam_recording.mp4)
+./record.sh
+
+# 2. Record to a custom output path
+./record.sh my_video.mp4
+
+# 3. Record while viewing a live on-screen preview window (mpv)
+./record.sh --preview
+./record.sh --preview my_video.mp4
+
+# 4. Post-process an existing video to remove 8 kHz whine immediately
+./record.sh --clean raw_recording.mp4 clean_recording.mp4
+```
+*(Press `q` in the preview window or terminal, or press `Ctrl+C`, to stop recording).*
+
+---
+
+### B. Direct Pipeline Commands (FFmpeg)
+
+If invoking `ffmpeg` directly in your shell or automation scripts:
+
+#### 1. Real-Time Filtered Recording (No Post-Processing Needed)
+Captures video and immediately filters out the 8,000 Hz USB microframe switching whine on-the-fly:
+
+```bash
+# Ensure motherboard analog input profile is active in PipeWire
+pactl set-card-profile alsa_card.pci-0000_00_1b.0 input:analog-stereo
+
+# Record to MP4 with real-time FIR brick-wall notch filter
+ffmpeg -y \
+  -thread_queue_size 1024 -f v4l2 -input_format yuyv422 -video_size 636x476 -i /dev/video0 \
+  -thread_queue_size 1024 -f pulse -i alsa_input.pci-0000_00_1b.0.analog-stereo \
+  -c:v libx264 -pix_fmt yuv420p \
+  -af "highpass=f=100,firequalizer=gain_entry='entry(0,0);entry(7000,0);entry(7500,-80);entry(24000,-80)',afftdn=nf=-20" \
+  -c:a aac -b:a 192k \
+  "$HOME/webcam_recording.mp4"
+```
+
+#### 2. Real-Time Filtered Recording + Live On-Screen Preview
+Pipes the live H.264 stream into `mpv` so you can see what is being captured in a window while recording clean audio to disk:
+
+```bash
+ffmpeg -y \
+  -thread_queue_size 1024 -f v4l2 -input_format yuyv422 -video_size 636x476 -i /dev/video0 \
+  -thread_queue_size 1024 -f pulse -i alsa_input.pci-0000_00_1b.0.analog-stereo \
+  -c:v libx264 -pix_fmt yuv420p \
+  -af "highpass=f=100,firequalizer=gain_entry='entry(0,0);entry(7000,0);entry(7500,-80);entry(24000,-80)',afftdn=nf=-20" \
+  -c:a aac -b:a 192k "$HOME/webcam_recording.mp4" \
+  -f matroska -c:v copy -an - | mpv --title="Webcam Recording Preview" -
+```
+
+#### 3. Post-Process an Existing Video (Immediate Filter Pass)
+To strip the 8 kHz whine from any existing video file without re-encoding the video (runs at ~50x speed via `-c:v copy`):
+
+```bash
+ffmpeg -y -i input_with_whine.mp4 \
+  -c:v copy \
+  -af "highpass=f=100,firequalizer=gain_entry='entry(0,0);entry(7000,0);entry(7500,-80);entry(24000,-80)',afftdn=nf=-20" \
+  -c:a aac -b:a 192k \
+  output_clean.mp4
+```
+
+---
+
+### C. Video-Only Recording & Snapshots
+
+```bash
+# 1. Record fixed duration (10s) video only
 ffmpeg -y -f v4l2 -input_format yuyv422 -video_size 636x476 -i /dev/video0 \
        -t 10 -c:v libx264 -pix_fmt yuv420p video_only.mp4
 
-# 2. Continuous recording (press 'q' or Ctrl+C to stop)
+# 2. Continuous video only (press 'q' or Ctrl+C to stop)
 ffmpeg -y -f v4l2 -input_format yuyv422 -video_size 636x476 -i /dev/video0 \
        -c:v libx264 -pix_fmt yuv420p video_capture.mp4
 
@@ -181,7 +250,9 @@ ffmpeg -y -f v4l2 -input_format yuyv422 -video_size 636x476 -i /dev/video0 \
        -vframes 1 snapshot.jpg
 ```
 
-### B. Audio Setup (Rear Analog Mic Jack)
+---
+
+### D. Audio Hardware Setup (Rear Analog Mic Jack)
 
 The webcam microphone terminates in a 3.5mm (P2) analog plug. For minimum noise, connect it to the **motherboard rear microphone jack** (pink port) and configure ALSA:
 
@@ -198,53 +269,6 @@ amixer -c 0 sset 'Capture' 74%
 # Test audio capture alone (5 seconds)
 arecord -D hw:0,0 -f S16_LE -r 48000 -c 2 -d 5 test_mic.wav
 mpv test_mic.wav
-```
-
-### C. Combined Video + Audio Recording (With Hardware Whine Filter)
-
-The webcam's combined cable runs the analog mic line parallel to USB High-Speed data lines, inducing an **8,000 Hz USB microframe switching whine**. The commands below apply real-time filtering (`highpass=f=100`, steep FIR cutoff at 7.5 kHz, and mild FFT denoising) to eliminate this whine completely while preserving vocal clarity:
-
-```bash
-# Ensure motherboard analog input profile is active in PipeWire
-pactl set-card-profile alsa_card.pci-0000_00_1b.0 input:analog-stereo
-
-# 1. Record fixed duration (e.g., 10 seconds)
-ffmpeg -y \
-  -thread_queue_size 1024 -f v4l2 -input_format yuyv422 -video_size 636x476 -i /dev/video0 \
-  -thread_queue_size 1024 -f pulse -i alsa_input.pci-0000_00_1b.0.analog-stereo \
-  -t 10 -c:v libx264 -pix_fmt yuv420p \
-  -af "highpass=f=100,firequalizer=gain_entry='entry(0,0);entry(7000,0);entry(7500,-80);entry(24000,-80)',afftdn=nf=-20" \
-  -c:a aac -b:a 192k \
-  webcam_with_audio.mp4
-
-# 2. Continuous recording (press 'q' or Ctrl+C to stop)
-ffmpeg -y \
-  -thread_queue_size 1024 -f v4l2 -input_format yuyv422 -video_size 636x476 -i /dev/video0 \
-  -thread_queue_size 1024 -f pulse -i alsa_input.pci-0000_00_1b.0.analog-stereo \
-  -c:v libx264 -pix_fmt yuv420p \
-  -af "highpass=f=100,firequalizer=gain_entry='entry(0,0);entry(7000,0);entry(7500,-80);entry(24000,-80)',afftdn=nf=-20" \
-  -c:a aac -b:a 192k \
-  webcam_with_audio.mp4
-```
-
-### D. Record to File AND Preview Live on Screen
-
-To see a real-time preview window on your screen while simultaneously recording clean video and filtered audio to an MP4 file, pipe the video stream into `mpv`:
-
-```bash
-ffmpeg -y \
-  -thread_queue_size 1024 -f v4l2 -input_format yuyv422 -video_size 636x476 -i /dev/video0 \
-  -thread_queue_size 1024 -f pulse -i alsa_input.pci-0000_00_1b.0.analog-stereo \
-  -c:v libx264 -pix_fmt yuv420p \
-  -af "highpass=f=100,firequalizer=gain_entry='entry(0,0);entry(7000,0);entry(7500,-80);entry(24000,-80)',afftdn=nf=-20" \
-  -c:a aac -b:a 192k "$HOME/webcam_recording.mp4" \
-  -f matroska -c:v copy -an - | mpv --title="Webcam Recording Preview" -
-```
-*(Closing the preview window with `q` stops recording and cleanly finalizes the MP4 file).*
-
-Play back through your default output (Steinberg UR44):
-```bash
-mpv "$HOME/webcam_recording.mp4"
 ```
 
 ---
