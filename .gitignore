@@ -1,0 +1,29 @@
+# Kernel module build artifacts
+*.o
+*.ko
+*.ko.zst
+*.mod
+*.mod.c
+*.mod.o
+*.cmd
+.*.cmd
+modules.order
+Module.symvers
+.cache/
+
+# Media & Captures
+*.raw
+*.jpg
+*.jpeg
+*.png
+*.mp4
+*.avi
+*.mkv
+
+# Python environments & cache
+venv/
+__pycache__/
+*.pyc
+
+# System / logs
+*.log
