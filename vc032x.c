@@ -1707,7 +1707,7 @@ static const u8 ov7660_initVGA_data[][4] = {
 	{0x00, 0x8b, 0xcc, 0xaa},	{0x00, 0x8c, 0xcc, 0xaa},
 	{0x00, 0x0f, 0x62, 0xaa},
 	{0x00, 0x35, 0x84, 0xaa},
-	{0x00, 0x3b, 0xc8, 0xaa}, /* Nightframe 1/4 + 50Hz -> 0xC8 */
+	{0x00, 0x3b, 0x08, 0xaa}, /* 50Hz -> 0x08 (no nightframe) */
 	{0x00, 0x3a, 0x00, 0xaa}, /* mx change yuyv format 00, 04, 01; 08, 0c*/
 	{0x00, 0x14, 0x6a, 0xaa}, /* agc ampli 128x */
 	{0x00, 0x24, 0x80, 0xaa}, /* AEW upper luminance limit */
@@ -1762,7 +1762,7 @@ static const u8 ov7660_initQVGA_data[][4] = {
 	{0x00, 0x39, 0x43, 0xaa},	{0x00, 0x8d, 0xcf, 0xaa},
 	{0x00, 0x8b, 0xcc, 0xaa},	{0x00, 0x8c, 0xcc, 0xaa},
 	{0x00, 0x0f, 0x62, 0xaa},	{0x00, 0x35, 0x84, 0xaa},
-	{0x00, 0x3b, 0xc8, 0xaa}, /* Nightframe 1/4 + 50Hz -> 0xC8 */
+	{0x00, 0x3b, 0x08, 0xaa}, /* 50Hz -> 0x08 (no nightframe) */
 	{0x00, 0x3a, 0x00, 0xaa}, /* mx change yuyv format 00, 04, 01; 08, 0c*/
 	{0x00, 0x14, 0x6a, 0xaa}, /* agc ampli 128x */
 	{0x00, 0x24, 0x80, 0xaa}, /* AEW upper luminance limit */
@@ -3683,7 +3683,24 @@ static void sd_pkt_scan(struct gspca_dev *gspca_dev,
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 
-	if (len >= 4 &&
+	if (sd->image_offset == 46) {
+		if (len >= 6 &&
+		    data[0] == 0xff && data[1] == 0xd8 &&
+		    data[2] == 'D'  && data[3] == 'a' &&
+		    data[4] == 'r'  && data[5] == 'k') {
+			gspca_dbg(gspca_dev, D_PACK,
+				  "vc032x DarkHorse header packet found len %d\n", len);
+			gspca_frame_add(gspca_dev, LAST_PACKET, NULL, 0);
+			if (len > sd->image_offset) {
+				data += sd->image_offset;
+				len -= sd->image_offset;
+				gspca_frame_add(gspca_dev, FIRST_PACKET, data, len);
+			} else {
+				gspca_frame_add(gspca_dev, FIRST_PACKET, NULL, 0);
+			}
+			return;
+		}
+	} else if (len >= 4 &&
 	    ((data[0] == 0xff && data[1] == 0xd9 && data[2] == 0xff && data[3] == 0xd8) ||
 	     (data[0] == 0xff && data[1] == 0xd8))) {
 		gspca_dbg(gspca_dev, D_PACK,
