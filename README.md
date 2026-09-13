@@ -200,9 +200,9 @@ arecord -D hw:0,0 -f S16_LE -r 48000 -c 2 -d 5 test_mic.wav
 mpv test_mic.wav
 ```
 
-### C. Combined Video + Audio Recording
+### C. Combined Video + Audio Recording (With Hardware Whine Filter)
 
-Capture via PipeWire (`-f pulse`) to prevent ALSA hardware buffer xruns and clock desync:
+The webcam's combined cable runs the analog mic line parallel to USB High-Speed data lines, inducing an **8,000 Hz USB microframe switching whine**. The commands below apply real-time filtering (`highpass=f=100`, steep FIR cutoff at 7.5 kHz, and mild FFT denoising) to eliminate this whine completely while preserving vocal clarity:
 
 ```bash
 # Ensure motherboard analog input profile is active in PipeWire
@@ -212,26 +212,32 @@ pactl set-card-profile alsa_card.pci-0000_00_1b.0 input:analog-stereo
 ffmpeg -y \
   -thread_queue_size 1024 -f v4l2 -input_format yuyv422 -video_size 636x476 -i /dev/video0 \
   -thread_queue_size 1024 -f pulse -i alsa_input.pci-0000_00_1b.0.analog-stereo \
-  -t 10 -c:v libx264 -pix_fmt yuv420p -c:a aac -b:a 192k \
+  -t 10 -c:v libx264 -pix_fmt yuv420p \
+  -af "highpass=f=100,firequalizer=gain_entry='entry(0,0);entry(7000,0);entry(7500,-80);entry(24000,-80)',afftdn=nf=-20" \
+  -c:a aac -b:a 192k \
   webcam_with_audio.mp4
 
 # 2. Continuous recording (press 'q' or Ctrl+C to stop)
 ffmpeg -y \
   -thread_queue_size 1024 -f v4l2 -input_format yuyv422 -video_size 636x476 -i /dev/video0 \
   -thread_queue_size 1024 -f pulse -i alsa_input.pci-0000_00_1b.0.analog-stereo \
-  -c:v libx264 -pix_fmt yuv420p -c:a aac -b:a 192k \
+  -c:v libx264 -pix_fmt yuv420p \
+  -af "highpass=f=100,firequalizer=gain_entry='entry(0,0);entry(7000,0);entry(7500,-80);entry(24000,-80)',afftdn=nf=-20" \
+  -c:a aac -b:a 192k \
   webcam_with_audio.mp4
 ```
 
 ### D. Record to File AND Preview Live on Screen
 
-To see a real-time preview window on your screen while simultaneously recording video and audio to an MP4 file, pipe the video stream into `mpv`:
+To see a real-time preview window on your screen while simultaneously recording clean video and filtered audio to an MP4 file, pipe the video stream into `mpv`:
 
 ```bash
 ffmpeg -y \
   -thread_queue_size 1024 -f v4l2 -input_format yuyv422 -video_size 636x476 -i /dev/video0 \
   -thread_queue_size 1024 -f pulse -i alsa_input.pci-0000_00_1b.0.analog-stereo \
-  -c:v libx264 -pix_fmt yuv420p -c:a aac -b:a 192k "$HOME/webcam_recording.mp4" \
+  -c:v libx264 -pix_fmt yuv420p \
+  -af "highpass=f=100,firequalizer=gain_entry='entry(0,0);entry(7000,0);entry(7500,-80);entry(24000,-80)',afftdn=nf=-20" \
+  -c:a aac -b:a 192k "$HOME/webcam_recording.mp4" \
   -f matroska -c:v copy -an - | mpv --title="Webcam Recording Preview" -
 ```
 *(Closing the preview window with `q` stops recording and cleanly finalizes the MP4 file).*
