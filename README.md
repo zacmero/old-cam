@@ -189,7 +189,35 @@ v4l2-ctl -d /dev/video0 --set-ctrl=contrast=60
 
 ## 8. Integrated Microphone (3.5mm P2 Audio Jack)
 
-The webcam features an integrated analog microphone exposed via a separate 3.5mm (P2) audio jack rather than USB audio.
-To use the microphone:
-1. Connect the 3.5mm jack to your computer's analog microphone input (e.g., front panel mic jack or motherboard line-in).
-2. Configure input levels using `alsamixer` or your desktop sound settings (PulseAudio / PipeWire).
+The webcam features an integrated analog electret microphone exposed via a separate 3.5mm (P2) audio jack rather than USB audio.
+
+### Audio Configuration (ALSA)
+When connected to the front panel audio jack of the motherboard (Intel PCH / ALC887):
+1. **Input Selection:** Route the input to the front microphone:
+   ```bash
+   amixer -c 0 sset 'Input Source',0 'Front Mic'
+   ```
+2. **Microphone Boost & Gain:**
+   Electret capsules output low-voltage analog signals. Enable pre-amp boost (+20dB) and set capture volume:
+   ```bash
+   amixer -c 0 sset 'Front Mic Boost' 2
+   amixer -c 0 sset 'Capture' 100%
+   ```
+3. **Audio-Only Recording Test:**
+   ```bash
+   arecord -D hw:0,0 -f S16_LE -r 44100 -c 2 -d 5 test_mic.wav
+   ```
+4. **Simultaneous Video + Audio Capture (FFmpeg):**
+   ```bash
+   ffmpeg -f v4l2 -input_format yuyv422 -video_size 640x480 -i /dev/video0 \
+          -f alsa -i hw:0,0 -t 10 -c:v libx264 -c:a aac output.mp4
+   ```
+
+---
+
+## 9. Hardware Activity LED
+
+The webcam body includes an integrated red indicator LED.
+- **Hardware Architecture:** On Vimicro VC0321/VC0323 controller boards, the activity LED is typically connected to one of the bridge GPIO output pins controlled via register `0x89`.
+- **Behavior:** In Logitech QuickCam OEM implementations, the driver asserts `0x89 = 0xfdff` to drive the LED low during streaming. In this DarkHorse OEM variant, the LED is unmapped by default and remains off during operation.
+
