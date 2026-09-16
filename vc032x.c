@@ -3523,14 +3523,6 @@ static int sd_start(struct gspca_dev *gspca_dev)
 	case SENSOR_OV7660:
 		GammaT = ov7660_gamma;
 		MatrixT = ov7660_matrix;
-		reg_w(gspca_dev, 0x89, 0x0000, 0x0000);
-		reg_w(gspca_dev, 0xa0, 0x02, 0xb334);
-		reg_w(gspca_dev, 0xa0, 0x26, 0xb300);
-		reg_w(gspca_dev, 0xa0, 0x26, 0xb300);
-		reg_w(gspca_dev, 0xa0, 0x01, 0xb308);
-		reg_w(gspca_dev, 0xa0, 0x0c, 0xb309);
-		reg_w(gspca_dev, 0xa0, 0xa1, 0xb335);
-		reg_w(gspca_dev, 0xa0, 0x05, 0xb301);
 		if (mode)
 			init = ov7660_initQVGA_data;	/* 320x240 */
 		else
@@ -3654,7 +3646,6 @@ static void sd_stopN(struct gspca_dev *gspca_dev)
 		reg_w(gspca_dev, 0x89, 0x058c, 0x00ff);
 		break;
 	case SENSOR_POxxxx:
-	case SENSOR_OV7660:
 		return;
 	default:
 		if (!(sd->flags & FL_SAMSUNG))
@@ -3676,7 +3667,7 @@ static void sd_stop0(struct gspca_dev *gspca_dev)
 /*fixme: is this useful?*/
 	if (sd->sensor == SENSOR_MI1310_SOC)
 		reg_w(gspca_dev, 0x89, 0x058c, 0x00ff);
-	else if (!(sd->flags & FL_SAMSUNG) && sd->sensor != SENSOR_OV7660)
+	else if (!(sd->flags & FL_SAMSUNG))
 		reg_w(gspca_dev, 0x89, 0xffff, 0xffff);
 
 	if (sd->sensor == SENSOR_POxxxx) {
@@ -3694,7 +3685,6 @@ static void sd_pkt_scan(struct gspca_dev *gspca_dev,
 
 	if (len >= 4 &&
 	    ((data[0] == 0xff && data[1] == 0xd9 && data[2] == 0xff && data[3] == 0xd8) ||
-	     (data[0] == 0xff && data[1] == 0xd8 && data[2] == 'D' && data[3] == 'a') ||
 	     (data[0] == 0xff && data[1] == 0xd8))) {
 		gspca_dbg(gspca_dev, D_PACK,
 			  "vc032x header packet found len %d\n", len);
