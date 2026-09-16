@@ -298,3 +298,17 @@ The webcam body includes an integrated red indicator LED.
 - **Hardware Architecture:** On Vimicro VC0321/VC0323 controller boards, the activity LED is typically connected to one of the bridge GPIO output pins controlled via register `0x89`.
 - **Behavior:** In Logitech QuickCam OEM implementations, the driver asserts `0x89 = 0xfdff` to drive the LED low during streaming. In this DarkHorse OEM variant, the LED is unmapped by default and remains off during operation.
 
+---
+
+## 10. Hardware Troubleshooting & USB Port Requirements
+
+### Defective USB Port / Power Instability Symptoms
+The Vimicro VC0321 bridge controller and CMOS sensor require clean 5V USB bus power and solid signal integrity on the D+/D- lines. If plugged into a defective port, a loose header, or an unpowered front-panel port with voltage drop:
+- **Symptom:** The camera connects and streams frames, but the image is almost pitch black with faint vertical sensor lines, or only a narrow vertical band of light is visible while the rest of the image is completely dark.
+- **Root Cause:** Undervolting or bus signal degradation causes the VC0321 I2C/SCCB transceiver to lose communication with the image sensor. In `dmesg`, this manifests as repeated:
+  ```text
+  vc032x_custom: i2c_write timeout
+  ```
+  Because I2C writes fail, the sensor never receives its exposure limits, gain ceilings, and Nightframe commands, staying locked at default 1x daylight exposure.
+- **Fix:** Connect the webcam directly to a verified stable motherboard rear USB 2.0 or 3.0 port. Avoid unpowered hubs, front-panel pass-throughs, or defective physical ports.
+
