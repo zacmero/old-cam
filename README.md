@@ -152,13 +152,13 @@ v4l2-ctl --device=/dev/video0 --stream-mmap --stream-count=30
 ```
 
 ### 4. Live Preview
-View the live camera feed in real time:
+View the live camera feed in real time (with optical black strip cropped):
 ```bash
-# mpv
-mpv --demuxer-lavf-format=video4linux2 --demuxer-lavf-o-set=input_format=yuyv422,video_size=636x476 av://v4l2:/dev/video0
+# mpv (crops sensor optical black strip)
+mpv --demuxer-lavf-format=video4linux2 --demuxer-lavf-o-set=input_format=yuyv422,video_size=636x476 --vf=crop=460:476:176:0 av://v4l2:/dev/video0
 
-# ffplay
-ffplay -f v4l2 -input_format yuyv422 -video_size 636x476 /dev/video0
+# ffplay (crops sensor optical black strip)
+ffplay -f v4l2 -input_format yuyv422 -video_size 636x476 -vf "crop=460:476:176:0" /dev/video0
 ```
 
 ---
@@ -167,10 +167,10 @@ ffplay -f v4l2 -input_format yuyv422 -video_size 636x476 /dev/video0
 
 ### A. All-in-One Recording Script (`record.sh`)
 
-A turnkey bash script [`record.sh`](record.sh) handles driver verification, PipeWire audio routing, 8 kHz hardware whine filtering, and optional live preview:
+A turnkey bash script [`record.sh`](record.sh) handles driver verification, PipeWire audio routing, 8 kHz hardware whine filtering, sensor optical black strip removal, and optional live preview:
 
 ```bash
-# 1. Record directly with real-time whine filter (saves to ~/webcam_recording.mp4)
+# 1. Record directly with real-time whine filter and clean 640x480 video (saves to ~/webcam_recording.mp4)
 ./record.sh
 
 # 2. Record to a custom output path
@@ -180,7 +180,7 @@ A turnkey bash script [`record.sh`](record.sh) handles driver verification, Pipe
 ./record.sh --preview
 ./record.sh --preview my_video.mp4
 
-# 4. Post-process an existing video to remove 8 kHz whine immediately
+# 4. Post-process an existing video to remove 8 kHz whine and crop raw glitch strip
 ./record.sh --clean raw_recording.mp4 clean_recording.mp4
 ```
 *(Press `q` in the preview window or terminal, or press `Ctrl+C`, to stop recording).*
@@ -192,16 +192,17 @@ A turnkey bash script [`record.sh`](record.sh) handles driver verification, Pipe
 If invoking `ffmpeg` directly in your shell or automation scripts:
 
 #### 1. Real-Time Filtered Recording (No Post-Processing Needed)
-Captures video and immediately filters out the 8,000 Hz USB microframe switching whine on-the-fly:
+Captures video, strips optical black blanking columns, scales to 640x480, and immediately filters out the 8,000 Hz USB microframe switching whine on-the-fly:
 
 ```bash
 # Ensure motherboard analog input profile is active in PipeWire
 pactl set-card-profile alsa_card.pci-0000_00_1b.0 input:analog-stereo
 
-# Record to MP4 with real-time FIR brick-wall notch filter
+# Record to MP4 with real-time audio notch filter and clean 640x480 video crop
 ffmpeg -y \
   -thread_queue_size 1024 -f v4l2 -input_format yuyv422 -video_size 636x476 -i /dev/video0 \
   -thread_queue_size 1024 -f pulse -i alsa_input.pci-0000_00_1b.0.analog-stereo \
+  -vf "crop=460:476:176:0,scale=640:480" \
   -c:v libx264 -pix_fmt yuv420p \
   -af "highpass=f=100,firequalizer=gain_entry='entry(0,0);entry(7000,0);entry(7500,-80);entry(24000,-80)',afftdn=nf=-20" \
   -c:a aac -b:a 192k \
@@ -215,6 +216,7 @@ Pipes the live H.264 stream into `mpv` so you can see what is being captured in 
 ffmpeg -y \
   -thread_queue_size 1024 -f v4l2 -input_format yuyv422 -video_size 636x476 -i /dev/video0 \
   -thread_queue_size 1024 -f pulse -i alsa_input.pci-0000_00_1b.0.analog-stereo \
+  -vf "crop=460:476:176:0,scale=640:480" \
   -c:v libx264 -pix_fmt yuv420p \
   -af "highpass=f=100,firequalizer=gain_entry='entry(0,0);entry(7000,0);entry(7500,-80);entry(24000,-80)',afftdn=nf=-20" \
   -c:a aac -b:a 192k "$HOME/webcam_recording.mp4" \
@@ -222,11 +224,12 @@ ffmpeg -y \
 ```
 
 #### 3. Post-Process an Existing Video (Immediate Filter Pass)
-To strip the 8 kHz whine from any existing video file without re-encoding the video (runs at ~50x speed via `-c:v copy`):
+To strip the 8 kHz whine (and optionally crop the left strip) from an existing video file:
 
 ```bash
 ffmpeg -y -i input_with_whine.mp4 \
-  -c:v copy \
+  -vf "crop=460:476:176:0,scale=640:480" \
+  -c:v libx264 -pix_fmt yuv420p \
   -af "highpass=f=100,firequalizer=gain_entry='entry(0,0);entry(7000,0);entry(7500,-80);entry(24000,-80)',afftdn=nf=-20" \
   -c:a aac -b:a 192k \
   output_clean.mp4
@@ -237,16 +240,19 @@ ffmpeg -y -i input_with_whine.mp4 \
 ### C. Video-Only Recording & Snapshots
 
 ```bash
-# 1. Record fixed duration (10s) video only
+# 1. Record fixed duration (10s) video only (640x480 clean)
 ffmpeg -y -f v4l2 -input_format yuyv422 -video_size 636x476 -i /dev/video0 \
+       -vf "crop=460:476:176:0,scale=640:480" \
        -t 10 -c:v libx264 -pix_fmt yuv420p video_only.mp4
 
 # 2. Continuous video only (press 'q' or Ctrl+C to stop)
 ffmpeg -y -f v4l2 -input_format yuyv422 -video_size 636x476 -i /dev/video0 \
+       -vf "crop=460:476:176:0,scale=640:480" \
        -c:v libx264 -pix_fmt yuv420p video_capture.mp4
 
-# 3. Capture a single JPEG snapshot
+# 3. Capture a single clean snapshot
 ffmpeg -y -f v4l2 -input_format yuyv422 -video_size 636x476 -i /dev/video0 \
+       -vf "crop=460:476:176:0,scale=640:480" \
        -vframes 1 snapshot.jpg
 ```
 

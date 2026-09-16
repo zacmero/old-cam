@@ -70,18 +70,32 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+# Optical black calibration strip removal + standard 640x480 VGA scaling
+VIDEO_FILTER="crop=460:476:176:0,scale=640:480"
+
 # Mode 1: Post-process existing file
 if [ "$CLEAN_MODE" = true ]; then
     if [ ! -f "$INPUT_FILE" ]; then
-        echo "[!] Error: Input file '$INPUT_FILE' does not exist."
+        echo "[!] Error: Input file $INPUT_FILE not found."
         exit 1
     fi
-    echo "[*] Cleaning audio on '$INPUT_FILE' -> '$OUTPUT_FILE'..."
-    ffmpeg -y -i "$INPUT_FILE" \
-        -c:v copy \
-        -af "$AUDIO_FILTER" \
-        -c:a aac -b:a 192k \
-        "$OUTPUT_FILE"
+    echo "[*] Post-processing existing file: $INPUT_FILE -> $OUTPUT_FILE"
+    IN_RES=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "$INPUT_FILE" 2>/dev/null || true)
+    if [ "$IN_RES" = "636x476" ]; then
+        echo "[*] Detected raw 636x476 video: removing left glitch strip & scaling to 640x480..."
+        ffmpeg -y -i "$INPUT_FILE" \
+            -vf "$VIDEO_FILTER" \
+            -c:v libx264 -pix_fmt yuv420p \
+            -af "$AUDIO_FILTER" \
+            -c:a aac -b:a 192k \
+            "$OUTPUT_FILE"
+    else
+        ffmpeg -y -i "$INPUT_FILE" \
+            -c:v copy \
+            -af "$AUDIO_FILTER" \
+            -c:a aac -b:a 192k \
+            "$OUTPUT_FILE"
+    fi
     echo "[+] Cleaned file saved to: $OUTPUT_FILE"
     exit 0
 fi
@@ -100,7 +114,7 @@ ensure_audio_profile
 echo "=================================================="
 echo " Starting Webcam Recording Pipeline"
 echo " Destination: $OUTPUT_FILE"
-echo " Video:       $VIDEO_DEV (636x476 YUYV -> H.264)"
+echo " Video:       $VIDEO_DEV (636x476 YUYV -> 640x480 H.264, strip removed)"
 echo " Audio:       Rear Mic (PipeWire) + 8 kHz Notch Filter"
 echo " Preview:     $PREVIEW"
 echo " Stop:        Press 'q' or Ctrl+C"
@@ -110,6 +124,7 @@ if [ "$PREVIEW" = true ]; then
     ffmpeg -y \
         -thread_queue_size 1024 -f v4l2 -input_format yuyv422 -video_size 636x476 -i "$VIDEO_DEV" \
         -thread_queue_size 1024 -f pulse -i "$AUDIO_SRC" \
+        -vf "$VIDEO_FILTER" \
         -c:v libx264 -pix_fmt yuv420p \
         -af "$AUDIO_FILTER" \
         -c:a aac -b:a 192k "$OUTPUT_FILE" \
@@ -118,6 +133,7 @@ else
     ffmpeg -y \
         -thread_queue_size 1024 -f v4l2 -input_format yuyv422 -video_size 636x476 -i "$VIDEO_DEV" \
         -thread_queue_size 1024 -f pulse -i "$AUDIO_SRC" \
+        -vf "$VIDEO_FILTER" \
         -c:v libx264 -pix_fmt yuv420p \
         -af "$AUDIO_FILTER" \
         -c:a aac -b:a 192k "$OUTPUT_FILE"

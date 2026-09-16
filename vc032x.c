@@ -1707,7 +1707,7 @@ static const u8 ov7660_initVGA_data[][4] = {
 	{0x00, 0x8b, 0xcc, 0xaa},	{0x00, 0x8c, 0xcc, 0xaa},
 	{0x00, 0x0f, 0x62, 0xaa},
 	{0x00, 0x35, 0x84, 0xaa},
-	{0x00, 0x3b, 0x08, 0xaa}, /* 50Hz -> 0x08 (no nightframe) */
+	{0x00, 0x3b, 0xc8, 0xaa}, /* Nightframe 1/4 + 50Hz -> 0xC8 */
 	{0x00, 0x3a, 0x00, 0xaa}, /* mx change yuyv format 00, 04, 01; 08, 0c*/
 	{0x00, 0x14, 0x6a, 0xaa}, /* agc ampli 128x */
 	{0x00, 0x24, 0x80, 0xaa}, /* AEW upper luminance limit */
@@ -1762,7 +1762,7 @@ static const u8 ov7660_initQVGA_data[][4] = {
 	{0x00, 0x39, 0x43, 0xaa},	{0x00, 0x8d, 0xcf, 0xaa},
 	{0x00, 0x8b, 0xcc, 0xaa},	{0x00, 0x8c, 0xcc, 0xaa},
 	{0x00, 0x0f, 0x62, 0xaa},	{0x00, 0x35, 0x84, 0xaa},
-	{0x00, 0x3b, 0x08, 0xaa}, /* 50Hz -> 0x08 (no nightframe) */
+	{0x00, 0x3b, 0xc8, 0xaa}, /* Nightframe 1/4 + 50Hz -> 0xC8 */
 	{0x00, 0x3a, 0x00, 0xaa}, /* mx change yuyv format 00, 04, 01; 08, 0c*/
 	{0x00, 0x14, 0x6a, 0xaa}, /* agc ampli 128x */
 	{0x00, 0x24, 0x80, 0xaa}, /* AEW upper luminance limit */
@@ -3523,6 +3523,14 @@ static int sd_start(struct gspca_dev *gspca_dev)
 	case SENSOR_OV7660:
 		GammaT = ov7660_gamma;
 		MatrixT = ov7660_matrix;
+		reg_w(gspca_dev, 0x89, 0x0000, 0x0000);
+		reg_w(gspca_dev, 0xa0, 0x02, 0xb334);
+		reg_w(gspca_dev, 0xa0, 0x26, 0xb300);
+		reg_w(gspca_dev, 0xa0, 0x26, 0xb300);
+		reg_w(gspca_dev, 0xa0, 0x01, 0xb308);
+		reg_w(gspca_dev, 0xa0, 0x0c, 0xb309);
+		reg_w(gspca_dev, 0xa0, 0xa1, 0xb335);
+		reg_w(gspca_dev, 0xa0, 0x05, 0xb301);
 		if (mode)
 			init = ov7660_initQVGA_data;	/* 320x240 */
 		else
@@ -3646,6 +3654,7 @@ static void sd_stopN(struct gspca_dev *gspca_dev)
 		reg_w(gspca_dev, 0x89, 0x058c, 0x00ff);
 		break;
 	case SENSOR_POxxxx:
+	case SENSOR_OV7660:
 		return;
 	default:
 		if (!(sd->flags & FL_SAMSUNG))
@@ -3667,7 +3676,7 @@ static void sd_stop0(struct gspca_dev *gspca_dev)
 /*fixme: is this useful?*/
 	if (sd->sensor == SENSOR_MI1310_SOC)
 		reg_w(gspca_dev, 0x89, 0x058c, 0x00ff);
-	else if (!(sd->flags & FL_SAMSUNG))
+	else if (!(sd->flags & FL_SAMSUNG) && sd->sensor != SENSOR_OV7660)
 		reg_w(gspca_dev, 0x89, 0xffff, 0xffff);
 
 	if (sd->sensor == SENSOR_POxxxx) {
@@ -3683,25 +3692,9 @@ static void sd_pkt_scan(struct gspca_dev *gspca_dev,
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 
-	if (sd->image_offset == 46) {
-		if (len >= 6 &&
-		    data[0] == 0xff && data[1] == 0xd8 &&
-		    data[2] == 'D'  && data[3] == 'a' &&
-		    data[4] == 'r'  && data[5] == 'k') {
-			gspca_dbg(gspca_dev, D_PACK,
-				  "vc032x DarkHorse header packet found len %d\n", len);
-			gspca_frame_add(gspca_dev, LAST_PACKET, NULL, 0);
-			if (len > sd->image_offset) {
-				data += sd->image_offset;
-				len -= sd->image_offset;
-				gspca_frame_add(gspca_dev, FIRST_PACKET, data, len);
-			} else {
-				gspca_frame_add(gspca_dev, FIRST_PACKET, NULL, 0);
-			}
-			return;
-		}
-	} else if (len >= 4 &&
+	if (len >= 4 &&
 	    ((data[0] == 0xff && data[1] == 0xd9 && data[2] == 0xff && data[3] == 0xd8) ||
+	     (data[0] == 0xff && data[1] == 0xd8 && data[2] == 'D' && data[3] == 'a') ||
 	     (data[0] == 0xff && data[1] == 0xd8))) {
 		gspca_dbg(gspca_dev, D_PACK,
 			  "vc032x header packet found len %d\n", len);
